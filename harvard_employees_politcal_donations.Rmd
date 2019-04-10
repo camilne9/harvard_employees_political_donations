@@ -1,0 +1,123 @@
+---
+title: "Harvard Employees Political Donations"
+author: "Christopher Milne"
+date: "4/10/2019"
+output: html_document
+---
+
+ 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(fs)
+library(gt)
+library(janitor)
+library(readr)
+library(stringr)
+library(lubridate)
+#This code loads the necessary packages for the code.
+```
+
+```{r echo = FALSE, warning = FALSE, cache = TRUE, message = FALSE}
+#The Code below works with the necessary data.
+
+download.file(url = "https://www.fec.gov/files/bulk-downloads/2006/weball06.zip", 
+              destfile = "all_candidates.zip",
+              mode = "wd")
+#This downloads the data from the FEC website, stores it as a zip file, and (because of the mode), allows the data to be worked with on either mac or pc.
+all_candidates <- read_delim(unzip("all_candidates.zip"), delim = "|", col_names = FALSE, 
+                             escape_double = FALSE, guess_max =5000) %>%
+#This saves the downloaded data as an object. Since the data didn't have column labels, col_names is set to false, the delim is "|" because that is what separates the different variables. Since the data set can be large, escape_double and guess_max deal with the large size.
+  select(X1, X2, X5, X19, X11) %>% 
+  rename("cand_id"="X1", "cand_name"="X2", "party"="X5", "cand_state"= "X19", "cash"="X11")
+#This selects the columns corresponding the variables of interest and renames them for clarity.
+
+fs::file_delete(c("all_candidates.zip", "weball06.txt"))
+#This deletes the downloaded data because the necessary data has already been saved as an object.
+
+
+download.file(url = "https://www.fec.gov/files/bulk-downloads/2006/cm06.zip", 
+              destfile = "committee_master.zip",
+              mode = "wd")
+#This downloads the data from the FEC website, stores it as a zip file, and (because of the mode), allows the data to be worked with on either mac or pc.
+committee_master <- read_delim(unzip("committee_master.zip"), col_names= FALSE, delim = "|", 
+                               escape_double = FALSE, guess_max = 5000) %>% 
+#This saves the downloaded data as an object. Since the data didn't have column labels, col_names is set to false, the delim is "|" because that is what separates the different variables. Since the data set can be large, escape_double and guess_max deal with the large size.
+  select(X1, X11, X15) %>% 
+  rename("cmte_id" = "X1", "cand_id"= "X15", "cmte_party" = "X11")
+#This selects the columns corresponding the variables of interest and renames them for clarity.
+
+fs::file_delete(c("committee_master.zip", "cm.txt"))
+#This deletes the downloaded data because the necessary data has already been saved as an object.
+
+
+download.file(url = "https://www.fec.gov/files/bulk-downloads/2006/indiv06.zip", 
+              destfile = "individual_contribution.zip",
+              mode = "wd")
+#This downloads the data from the FEC website, stores it as a zip file, and (because of the mode), allows the data to be worked with on either mac or pc.
+individual_contribution <- read_delim(unzip("individual_contribution.zip"), col_names= FALSE, 
+                                      delim = "|", escape_double = FALSE, guess_max = 5000) %>% 
+#This saves the downloaded data as an object. Since the data didn't have column labels, col_names is set to false, the delim is "|" because that is what separates the different variables. Since the data set can be large, escape_double and guess_max deal with the large size.
+  select(X1, X12, X13, X14, X15) %>% 
+  rename("cmte_id"= "X1", "employer" = "X12", "occupation"= "X13", "date" = "X14", 
+         "amount" = "X15")
+#This selects the columns corresponding the variables of interest and renames them for clarity.
+
+fs::file_delete(c("individual_contribution.zip", "itcont.txt"))
+#This deletes the downloaded data because the necessary data has already been saved as an object.
+```
+
+```{r echo = FALSE, message = FALSE}
+#This code chunk generates the data necessary for the graphic for the question (which is created in a different rmd file) to avoid unnecessary repetition of downloading data.
+joined <- individual_contribution %>% 
+  left_join(committee_master, by = "cmte_id") %>% 
+  filter(employer == "HARVARD UNIVERSITY")
+#This mimics the code used for the first join in question 4. The only difference is that the operations that filtered for professors is removed because non-professor cases are necessary for this question.
+
+full_set <- joined %>% 
+  left_join(all_candidates, by = "cand_id") %>% 
+  filter(!is.na(party))
+#This code matches exactly the code used for the second join in question 4 (see above) because the information from this combination of data sets with the na party filtered out is necessary for th desired graphic.
+
+y <- full_set %>% 
+  mutate(date = parse_date(date, "%m%d%Y")) %>% 
+  mutate(quarters = cut(date, breaks='quarter')) %>% 
+  mutate(party = case_when(party %in% c("DEM")~"Democrat", party %in%c("REP")~"Republican", 
+                           TRUE ~"Other")) %>% 
+#This gives more descriptive names for the parties so that when they show up in the graphic it is clear what the party code refers to. All non-democrat and non-republican cases are assigned to the "Other" category.
+  mutate(party = fct_relevel(party, c("Democrat", "Republican", "Other"))) %>% 
+#The party factor is releveled so the parties appear in a logical order on the graphic and in the legend.
+  mutate(Party = party) %>% 
+#This creates a simple cosmetic change so that the legend label looks better.
+  write_rds(path = "joined_filtered_data")
+#This makes this code chunk into a separate file so that it can be read into the other rmd document.
+```
+
+```{r echo = FALSE}
+read_rds("joined_filtered_data") %>% 
+#This reads in the code chunk from the other rmd document. This prevents needing to do all of the downloading done in the other rmd.
+  ggplot(aes(x=quarters, y= amount, fill = Party))+
+#This creates a plot where, as desired, the date is on the x axis (in the form of quarters so that the data is more interpretable visually). Donation amount is represented on the y axis and party is indicated by the fill color.
+  geom_col()+
+#Since the data is looked at by date by quarter, the data is well represented by a geom_col.
+  labs(title = "Donations by Harvard Employees to Candidates by Party",
+       subtitle = "per quarter 2005-2006",
+       caption = "Source: Federal Election Commission",
+       x = "Date",
+       y = "Donation Amount")+
+#This gives a title, subtitle, caption, and axis titles for the plot that describe clearly what the graph and its various aspects represent.
+  scale_fill_manual(values = c("blue", "red", "green"))+
+#The fill colors are assigned manually so that the colors normally associated with the parties match the colors assigned to them.
+  theme_bw()+
+#The black and white theme is used to make the background look better.
+  theme(panel.grid.major.x = element_blank())+
+#The unnecessary vertical lines are removed.
+  theme(axis.text.x = element_text(angle = 90))+
+#The x axis date indicators are oriented sideways so that they don't appear too crowded.
+  scale_y_continuous(labels = c("$0", "$10,000", "$20,000", "$30,000", "$40,000", "$50,000"))
+#The y axis labels are indicated manually to better show that they represent dollar amounts.
+```
+
